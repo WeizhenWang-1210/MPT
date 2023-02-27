@@ -100,7 +100,7 @@ def dict_to_cuda(d):
         d[k] = d[k].cuda()
 
 class MultiPathPPDataset(Dataset):
-    def __init__(self, config):
+    def __init__(self, config):  #initializer. All needed data inside the local folder, specified by config.yaml
         self._data_path = config["data_path"]
         self._config = config
         files = os.listdir(self._data_path)
@@ -113,14 +113,14 @@ class MultiPathPPDataset(Dataset):
     def __len__(self):
         return len(self._files)
     
-    def _generate_sin_cos(self, data):
+    def _generate_sin_cos(self, data): #convert all yaw for all agents into sin cos? Don't see the reason for that for now.
         data["target/history/yaw_sin"] = np.sin(data["target/history/yaw"])
         data["target/history/yaw_cos"] = np.cos(data["target/history/yaw"])
         data["other/history/yaw_sin"] = np.sin(data["other/history/yaw"])
         data["other/history/yaw_cos"] = np.cos(data["other/history/yaw"])
         return data
     
-    def _add_length_width(self, data):
+    def _add_length_width(self, data): #data["target/length"] is a scalar, reshape to np.array and times some angle?
         data["target/history/length"] = \
             data["target/length"].reshape(-1, 1, 1) * np.ones_like(data["target/history/yaw"])
         data["target/history/width"] = \
@@ -154,7 +154,7 @@ class MultiPathPPDataset(Dataset):
             np.zeros((data["other/history/valid"].shape[0], 1, 1))], axis=1))[:, :-1, :]
         return data
     
-    def _compute_agent_type_and_is_sdc_ohe(self, data, subject):
+    def _compute_agent_type_and_is_sdc_ohe(self, data, subject):#one hot encoding?
         I = np.eye(5)
         agent_type_ohe = I[np.array(data[f"{subject}/agent_type"])]
         is_sdc = np.array(data[f"{subject}/is_sdc"]).reshape(-1, 1)
@@ -167,7 +167,7 @@ class MultiPathPPDataset(Dataset):
         ndarray = ndarray * (np.random.uniform(size=ndarray.shape) > fraction)
         return ndarray
     
-    def _compute_lstm_input_data(self, data):
+    def _compute_lstm_input_data(self, data): #concatenate/agggregate all feautres for agents.
         keys_to_stack = self._config["lstm_input_data"]
         keys_to_stack_diff = self._config["lstm_input_data_diff"]
         for subject in ["target", "other"]:
@@ -181,7 +181,7 @@ class MultiPathPPDataset(Dataset):
             data[f"{subject}/history/lstm_data_diff"] *= data[f"{subject}/history/valid_diff"]
         return data
 
-    def _compute_mcg_input_data(self, data):
+    def _compute_mcg_input_data(self, data): #agent's data with timestamp added?
         for subject in ["target", "other"]:
             agent_type_ohe = self._compute_agent_type_and_is_sdc_ohe(data, subject)
             lstm_input_data = data[f"{subject}/history/lstm_data"]
@@ -191,26 +191,28 @@ class MultiPathPPDataset(Dataset):
                 [lstm_input_data, timestamp_ohe], axis=-1)
         return data
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx): 
         try:
             np_data = dict(np.load(self._files[idx], allow_pickle=True))
         except:
             print("Error reading", self._files[idx])
             idx = 0
             np_data = dict(np.load(self._files[0], allow_pickle=True))
+        #load a npz file, containing an instance when one agent is picked as the target agent.
         np_data["scenario_id"] = np_data["scenario_id"].item()
         np_data["filename"] = self._files[idx]
         np_data["target/history/yaw"] = angle_to_range(np_data["target/history/yaw"])
         np_data["other/history/yaw"] = angle_to_range(np_data["other/history/yaw"])
         np_data = self._generate_sin_cos(np_data)
         np_data = self._add_length_width(np_data)
-        if self._config["mask_history"]:
+        if self._config["mask_history"]: #can mask some frames probablistically
             for subject in ["target", "other"]:
                 np_data[f"{subject}/history/valid"] = self._mask_history(
                         np_data[f"{subject}/history/valid"], self._config["mask_history_fraction"])
         np_data = self._compute_agent_diff_features(np_data)
         np_data = self._compute_lstm_input_data(np_data)
         np_data = self._compute_mcg_input_data(np_data)
+        #print(len(np_data))
         return np_data
 
     @staticmethod
@@ -246,6 +248,7 @@ class MultiPathPPDataset(Dataset):
         result_dict["road_network_scatter_numbers"] = torch.Tensor(
             road_network_scatter_numbers).type(torch.long)
         result_dict["batch_size"] = len(batch)
+        #print(len(result_dict))
         return result_dict
 
 

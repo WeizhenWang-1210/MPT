@@ -22,3 +22,9 @@ archive/*
 .vscode
 **/*.code-workspace
 code/run.sh
+raw_train/
+raw_val/
+processed_train/
+processed_val/
+**/code/test.py
+**/models/

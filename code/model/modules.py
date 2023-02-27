@@ -5,7 +5,7 @@ from torch import nn
 from torch_scatter import scatter_max
 
 
-class MLP(nn.Module):
+class MLP(nn.Module): #multilevel percepton
     def __init__(self, config):
         super().__init__()
         self._config = config
@@ -28,7 +28,7 @@ class MLP(nn.Module):
         return output
 
 
-class NormalMLP(nn.Module):
+class NormalMLP(nn.Module): #also multilevel perceptron? but can specify dimensionality in each layer
     def __init__(self, config):
         super().__init__()
         modules = []
@@ -54,13 +54,13 @@ class NormalMLP(nn.Module):
         for l in self._mlp:
             x = l(x)
             tmp.append(x)
-            assert torch.isfinite(x).all()
+            assert torch.isfinite(x).all() #why would you store intermediate results?
         return x
         output = self._mlp(x)
         return output
             
 
-class CGBlock(nn.Module):
+class CGBlock(nn.Module):  #CGBlock, as specified in the original multipath++ paper
     def __init__(self, config):
         super().__init__()
         self._config = config
@@ -317,13 +317,27 @@ class HistoryEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self._config = config
-        self._position_lstm = nn.LSTM(batch_first=True, **config["position_lstm_config"])
-        self._position_diff_lstm = nn.LSTM(batch_first=True, **config["position_diff_lstm_config"])
+        encoder_layer1 = nn.TransformerEncoderLayer(d_model=13, nhead=1, batch_first=True, dim_feedforward=256)
+        encoder_layer2 = nn.TransformerEncoderLayer(d_model=11, nhead=1, batch_first=True, dim_feedforward=256)
+        self._position_t = nn.TransformerEncoder(encoder_layer1, num_layers = 1) 
+        self.projection1 = nn.Linear(13, 64)
+        self.projection2 = nn.Linear(11, 64)  
+        #self._position_lstm = nn.LSTM(batch_first=True, **config["position_lstm_config"])   
+        #self._position_diff_lstm = nn.LSTM(batch_first=True, **config["position_diff_lstm_config"])
+        self._position_diff_t = nn.TransformerEncoder(encoder_layer2, num_layers = 1)
+
         self._position_mcg = MCGBlock(config["position_mcg_config"])
 
     def forward(self, scatter_numbers, scatter_idx, lstm_data, lstm_data_diff, mcg_data):
-        position_lstm_embedding = self._position_lstm(lstm_data)[0][:, -1:, :]
-        position_diff_lstm_embedding = self._position_diff_lstm(lstm_data_diff)[0][:, -1:, :]
+        #print(lstm_data.shape)
+        #position_lstm_embedding = self._position_lstm(lstm_data)[0][:, -1:, :] #[0] tp retrieve only o, -1 to get the last
+        position_lstm_embedding = self._position_t(lstm_data).mean(dim = 1, keepdim = True)
+        position_lstm_embedding = self.projection1(position_lstm_embedding)
+        #print(self._position_lstm(lstm_data)[0].shape)
+        #print(position_lstm_embedding.shape)
+        position_diff_lstm_embedding = self._position_diff_t(lstm_data_diff).mean(dim = 1, keepdim = True)
+        position_diff_lstm_embedding = self.projection2(position_diff_lstm_embedding)
+
         position_mcg_embedding = self._position_mcg(
             scatter_numbers, scatter_idx, mcg_data, aggregate_batch=False)
         return torch.cat([

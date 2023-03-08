@@ -62,13 +62,16 @@ class MultiPathPP(nn.Module):
         target_and_interaction_embedding_linear = self._agent_and_interaction_linear(
             target_and_interaction_embedding)
         assert torch.isfinite(target_and_interaction_embedding_linear).all()
+        
         roadgraph_mcg_embedding = self._roadgraph_mcg_encoder(
             data["road_network_scatter_numbers"], data["road_network_scatter_idx"],
             segment_embeddings, target_and_interaction_embedding_linear)
+        #Apparently transformer is too cumbersome when handling roadgraph_mcg_embedding. Need to figure out ways to make it work.
         assert torch.isfinite(roadgraph_mcg_embedding).all()
         final_embedding = torch.cat(
             [target_mcg_embedding, interaction_mcg_embedding, roadgraph_mcg_embedding], dim=-1)
         assert torch.isfinite(final_embedding).all()
+        
         if self._config["multiple_predictions"]:
             if self._config["make_em"]:
                 probas, coordinates, covariance_matrices, loss_coeff = self._decoder_handler(

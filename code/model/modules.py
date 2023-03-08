@@ -64,16 +64,40 @@ class CGBlock(nn.Module):  #CGBlock, as specified in the original multipath++ pa
     def __init__(self, config):
         super().__init__()
         self._config = config
-        self.s_mlp = MLP(config["mlp"])
-        self.c_mlp = nn.Identity() if config["identity_c_mlp"] else MLP(config["mlp"])
-        self.n_in = self.s_mlp.n_in
-        self.n_out = self.s_mlp.n_out
+        #self.s_mlp = MLP(config["mlp"])
+        #self.c_mlp = nn.Identity() #if config["identity_c_mlp"] else MLP(config["mlp"])
+        #self.n_in = self.s_mlp.n_in
+        #self.n_out = self.s_mlp.n_out
+        self.n_in = config['mlp']['n_in']
+        self.n_out = config['mlp']['n_out']
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.n_in, nhead=1, dim_feedforward=128)
+        self.cross_attention = nn.TransformerEncoder(encoder_layer, num_layers = 1) 
 
-    def forward(self, scatter_numbers, s, c):
+    def forward(self, scatter_numbers, scatter_idx, s, c):
         prev_s_shape, prev_c_shape = s.shape, c.shape
-        s = self.s_mlp(s.view(-1, s.shape[-1])).view(prev_s_shape)
-        c = self.c_mlp(c.view(-1, c.shape[-1])).view(prev_c_shape)
-        s = s * c
+        #s = self.s_mlp(s.view(-1, s.shape[-1])).view(prev_s_shape)
+        #c = self.c_mlp(c.view(-1, c.shape[-1])).view(prev_c_shape)
+        for scatter_id in set(scatter_idx):
+            mask = scatter_idx==scatter_id
+            s_interested = s[mask,...]
+            c_interested = c[mask,...]
+
+            #print(s_interested.shape)
+            #print(c_interested.shape)
+            prev_s_shape, prev_c_shape = s_interested.shape, c_interested.shape
+            
+            s_interested = s_interested.view(-1, s_interested.shape[-1])
+            s_rows = s_interested.shape[0]
+            c_interested = c_interested.view(-1, c_interested.shape[-1])
+            #print(s_interested.shape)
+            #print(c_interested.shape)
+            cat = torch.cat([s_interested,c_interested],dim=0)
+            #print(cat.shape)
+            cat = self.cross_attention(cat)
+            #print(cat.shape)
+            #print(s_rows)
+            s[mask,...] = cat[:s_rows,...].view(prev_s_shape)
+            c[mask,...] = cat[s_rows:,...].view(prev_c_shape)
         if self._config["agg_mode"] == "max":
             aggregated_c = torch.max(s, dim=1, keepdim=True)[0]
         elif self._config["agg_mode"] in ["mean", "avg"]:
@@ -88,6 +112,7 @@ class MCGBlock(nn.Module):
         super().__init__()
         self._config = config
         self._blocks = []
+        '''
         for i in range(config["n_blocks"]):
             current_block_config = config["block"].copy()
             if i == 0 and config["identity_c_mlp"]:
@@ -96,6 +121,14 @@ class MCGBlock(nn.Module):
                 current_block_config["identity_c_mlp"] = False
             current_block_config["agg_mode"] = config["agg_mode"]
             self._blocks.append(CGBlock(current_block_config))
+        '''
+        for i in range(1):
+            current_block_config = config["block"].copy()
+            current_block_config["agg_mode"] = config["agg_mode"]
+            self._blocks.append(CGBlock(current_block_config))
+        
+        #self._blocks.append(CGBlock(config["block"].copy()))
+        
         self._blocks = nn.ModuleList(self._blocks)
         self.n_in = self._blocks[0].n_in
         self.n_out = self._blocks[-1].n_out
@@ -106,7 +139,7 @@ class MCGBlock(nn.Module):
             result.append(tensor[[i]].expand((int(scatter_numbers[i]), -1, -1)))
         result = torch.cat(result, axis=0)
         return result
-
+    '''
     def _compute_running_mean(self, prevoius_mean, new_value, i):
         if self._config["running_mean_mode"] == "real":
             result = (prevoius_mean * i + new_value) / i
@@ -114,6 +147,8 @@ class MCGBlock(nn.Module):
             assert self._config["alpha"] + self._config["beta"] == 1
             result = self._config["alpha"] * prevoius_mean + self._config["beta"] * new_value
         return result
+    '''
+    
 
     def forward(
             self, scatter_numbers, scatter_idx, s, c=None, aggregate_batch=True, return_s=False):
@@ -123,10 +158,20 @@ class MCGBlock(nn.Module):
         else:
             assert not self._config["identity_c_mlp"]
         c = self._repeat_tensor(c, scatter_numbers)
+        #print("MCGBlock")
+        #print("s.shape")
+        #print(s.shape)
+        #print("c.shape")
+        #print(c.shape)
         assert torch.isfinite(s).all()
         assert torch.isfinite(c).all()
         running_mean_s, running_mean_c = s, c
-        for i, cg_block in enumerate(self._blocks, start=1):
+    
+        for i, cg_block in enumerate(self._blocks):
+            running_mean_s, running_mean_c = cg_block(scatter_numbers, scatter_idx, running_mean_s, running_mean_c)
+            assert torch.isfinite(running_mean_s).all()
+            assert torch.isfinite(running_mean_c).all()
+            '''
             s, c = cg_block(scatter_numbers, running_mean_s, running_mean_c)
             assert torch.isfinite(s).all()
             assert torch.isfinite(c).all()
@@ -134,10 +179,20 @@ class MCGBlock(nn.Module):
             running_mean_c = self._compute_running_mean(running_mean_c, c, i)
             assert torch.isfinite(running_mean_s).all()
             assert torch.isfinite(running_mean_c).all()
+        '''
+        
         if return_s:
+            #print("running_mean_s.shape")
+            #print(running_mean_s.shape)
             return running_mean_s 
         if aggregate_batch:
-            return scatter_max(running_mean_c, scatter_idx, dim=0)[0]
+            result = scatter_max(running_mean_c, scatter_idx, dim=0)[0]
+            #print("scatter_max.shape")
+            #print(result.shape)
+            #print("")
+            return result
+        #print("running_mean_c.shape")
+        #print(running_mean_c.shape)
         return running_mean_c
 
 
@@ -337,6 +392,15 @@ class HistoryEncoder(nn.Module):
         #print(position_lstm_embedding.shape)
         position_diff_lstm_embedding = self._position_diff_t(lstm_data_diff).mean(dim = 1, keepdim = True)
         position_diff_lstm_embedding = self.projection2(position_diff_lstm_embedding)
+        #print("HistoryEncoder: ")
+        #print("lstm_data.shape: " )
+        #print(lstm_data.shape)
+        #print("lstm_data_diff.shape: " )
+        #print(lstm_data.shape)
+        #print("mcg_data.shape: ")
+        #print(mcg_data.shape)
+        #print("\n")
+        
 
         position_mcg_embedding = self._position_mcg(
             scatter_numbers, scatter_idx, mcg_data, aggregate_batch=False)

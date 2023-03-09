@@ -74,12 +74,31 @@ class CGBlock(nn.Module):  #CGBlock, as specified in the original multipath++ pa
         self.cross_attention = nn.TransformerEncoder(encoder_layer, num_layers = 1) 
 
     def forward(self, scatter_numbers, scatter_idx, s, c):
+        #print("scatter_idx.shape")
+        #print(scatter_idx.shape)
         prev_s_shape, prev_c_shape = s.shape, c.shape
         #s = self.s_mlp(s.view(-1, s.shape[-1])).view(prev_s_shape)
         #c = self.c_mlp(c.view(-1, c.shape[-1])).view(prev_c_shape)
-        for scatter_id in set(scatter_idx):
-            mask = scatter_idx==scatter_id
+        #print(scatter_idx.sum())
+        #print(len(scatter_idx))
+        #print("s.shape")
+        #print(s.shape)
+        #print("c.shape")
+        #print(c.shape)
+        if s.shape[0]<c.shape[0]:
+            #print("Broadcast s")
+            new_shape = [c.shape[0]//s.shape[0]] + [1]*len(s.shape[1:])
+            #print("s's new shape")
+            s = s.repeat(new_shape)
+            #print(s.shape)
+        
+        unique_ids, reverse_indices = scatter_idx.unique(return_inverse = True)
+        for indice in torch.arange(unique_ids.shape[0]):
+            mask = reverse_indices==indice
             s_interested = s[mask,...]
+            #print("Scater_id")
+            #print(scatter_id)
+            #print("scatter")
             c_interested = c[mask,...]
 
             #print(s_interested.shape)
@@ -98,6 +117,7 @@ class CGBlock(nn.Module):  #CGBlock, as specified in the original multipath++ pa
             #print(s_rows)
             s[mask,...] = cat[:s_rows,...].view(prev_s_shape)
             c[mask,...] = cat[s_rows:,...].view(prev_c_shape)
+    
         if self._config["agg_mode"] == "max":
             aggregated_c = torch.max(s, dim=1, keepdim=True)[0]
         elif self._config["agg_mode"] in ["mean", "avg"]:
@@ -215,6 +235,10 @@ class Decoder(nn.Module):
     
     def forward(self, target_scatter_numbers, target_scatter_idx, final_embedding, batch_size):
         # assert torch.isfinite(self._learned_anchor_embeddings).all()
+        #print("Decoder: target_scatter_idx.shape")
+        #print(target_scatter_idx.shape)
+        #print("Decoder: final_embedding.shape")
+        #print(final_embedding.shape)
         assert torch.isfinite(final_embedding).all()
         trajectories_embeddings = self._mcg_predictor(
             target_scatter_numbers, target_scatter_idx, self._learned_anchor_embeddings,

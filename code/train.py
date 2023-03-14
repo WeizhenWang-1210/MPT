@@ -39,8 +39,7 @@ def get_git_revision_short_hash():
 
 config = get_config(sys.argv[1])
 alias = sys.argv[1].split("/")[-1].split(".")[0]
-
-models_path = f"C:\\Users\\17912\\OneDrive\\Desktop\\DLCV\\mpp\\models\\{alias}__{get_git_revision_short_hash()}"
+models_path = f"models/{alias}__{get_git_revision_short_hash()}"
 if not os.path.exists(models_path):
     os.mkdir(models_path)
 
@@ -119,7 +118,7 @@ if __name__ == "__main__":
                 torch.save(saving_data, os.path.join(models_path, f"last.pth"))
             
 
-            if True: # num_steps % (len(dataloader) // 2) == 0 and this_num_steps > 0:
+            if num_steps % (len(dataloader) // 2) == 0 and this_num_steps > 0:
                 del data
                 torch.cuda.empty_cache()
                 model.eval()

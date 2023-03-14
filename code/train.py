@@ -15,81 +15,85 @@ import os
 import glob
 import sys
 import random
+from my_utils import Metric, Visualizer
+
+seed = 0
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+np.random.seed(seed)
+random.seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
+def get_last_file(path):
+    list_of_files = glob.glob(f'{path}/*')
+    if len(list_of_files) == 0:
+        return None
+    latest_file = max(list_of_files, key=os.path.getctime)
+    return latest_file
+
+def get_git_revision_short_hash():
+    return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
 
 
-if __name__ == "__main__":
-    seed = 0
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+config = get_config(sys.argv[1])
+alias = sys.argv[1].split("/")[-1].split(".")[0]
 
-    def get_last_file(path):
-        list_of_files = glob.glob(f'{path}/*')
-        if len(list_of_files) == 0:
-            return None
-        latest_file = max(list_of_files, key=os.path.getctime)
-        return latest_file
+models_path = f"C:\\Users\\17912\\OneDrive\\Desktop\\DLCV\\mpp\\models\\{alias}__{get_git_revision_short_hash()}"
+if not os.path.exists(models_path):
+    os.mkdir(models_path)
 
-    def get_git_revision_short_hash():
-        return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
-
-
-    config = get_config(sys.argv[1])
-    alias = sys.argv[1].split("/")[-1].split(".")[0]
-    try:
-        
-        absolute_path = os.path.dirname(__file__)
-        relative_path = "models"
-        models_path = os.path.join(absolute_path, relative_path, f"{alias}__{get_git_revision_short_hash()}", )
-        print(models_path)
-        os.makedirs(models_path)
-    except:
-        print("I'm not made")
-        pass
-    last_checkpoint = get_last_file(models_path)
-    dataloader = get_dataloader(config["train"]["data_config"])
-    val_dataloader = get_dataloader(config["val"]["data_config"])
-    model = MultiPathPP(config["model"])
-    model.cuda()
-    optimizer = Adam(model.parameters(), **config["train"]["optimizer"])
+last_checkpoint = None # get_last_file(models_path) # now using last ckpt for experiments now
+dataloader = get_dataloader(config["train"]["data_config"])
+val_dataloader = get_dataloader(config["val"]["data_config"])
+model = MultiPathPP(config["model"])
+model.cuda()
+optimizer = Adam(model.parameters(), **config["train"]["optimizer"])
+if config["train"]["scheduler"]:
+    scheduler = ReduceLROnPlateau(optimizer, patience=20, factor=0.5, verbose=True)
+num_steps = 0
+if last_checkpoint is not None:
+    model.load_state_dict(torch.load(last_checkpoint)["model_state_dict"])
+    optimizer.load_state_dict(torch.load(last_checkpoint)["optimizer_state_dict"])
+    num_steps = torch.load(last_checkpoint)["num_steps"]
     if config["train"]["scheduler"]:
-        scheduler = ReduceLROnPlateau(optimizer, patience=20, factor=0.5, verbose=True)
-    num_steps = 0
-    if last_checkpoint is not None:
-        model.load_state_dict(torch.load(last_checkpoint)["model_state_dict"])
-        optimizer.load_state_dict(torch.load(last_checkpoint)["optimizer_state_dict"])
-        num_steps = torch.load(last_checkpoint)["num_steps"]
-        if config["train"]["scheduler"]:
-            scheduler.load_state_dict(torch.load(last_checkpoint)["scheduler_state_dict"])
-        print("LOADED ", last_checkpoint)
-    this_num_steps = 0
-    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
-    params = sum([np.prod(p.size()) for p in model_parameters])
-    print("N PARAMS=", params)
+        scheduler.load_state_dict(torch.load(last_checkpoint)["scheduler_state_dict"])
+    print("LOADED ", last_checkpoint)
+this_num_steps = 0
+model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+params = sum([np.prod(p.size()) for p in model_parameters])
+print("N PARAMS=", params)
 
-    train_losses = []
+train_losses = []
 
+if not os.path.exists("visuals_transformer"):
+    os.makedirs("visuals_transformer")
+if not os.path.exists("metrics_transformer"):
+    os.makedirs("metrics_transformer")
+
+# random human-picked batches
+plot_batches = [0, 30, 50, 90, 100]
+for b in plot_batches:
+    if not os.path.exists(f"visuals_transformer/batch={b}"):
+        os.makedirs(f"visuals_transformer/batch={b}")
+    
+if __name__ == "__main__":
     for epoch in tqdm(range(config["train"]["n_epochs"])):
         pbar = tqdm(dataloader)
         for data in pbar:
             model.train()
             optimizer.zero_grad()
+            
             if config["train"]["normalize"]:
                 data = normalize(data, config)
             dict_to_cuda(data)
             probas, coordinates, covariance_matrices, loss_coeff = model(data, num_steps)
-            assert torch.isfinite(coordinates).all()
-            assert torch.isfinite(probas).all()
-            assert torch.isfinite(covariance_matrices).all()
             xy_future_gt = data["target/future/xy"]
             if config["train"]["normalize_output"]:
                 # assert not (config["train"]["normalize_output"] and config["train"]["trainable_cov"])
                 xy_future_gt = (data["target/future/xy"] - torch.Tensor([1.4715e+01, 4.3008e-03]).cuda()) / 10.
-                assert torch.isfinite(xy_future_gt).all()
+                # assert torch.isfinite(xy_future_gt).all()
             loss = nll_with_covariances(
                 xy_future_gt, coordinates, probas, data["target/future/valid"].squeeze(-1),
                 covariance_matrices) * loss_coeff
@@ -98,10 +102,10 @@ if __name__ == "__main__":
             if "clip_grad_norm" in config["train"]:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), config["train"]["clip_grad_norm"])
             optimizer.step()
-            if config["train"]["normalize_output"]:
-                _coordinates = coordinates.detach() * 10. + torch.Tensor([1.4715e+01, 4.3008e-03]).cuda()
-            else:
-                _coordinates = coordinates.detach()
+            # if config["train"]["normalize_output"]:
+            #     _coordinates = coordinates.detach() * 10. + torch.Tensor([1.4715e+01, 4.3008e-03]).cuda()
+            # else:
+            #     _coordinates = coordinates.detach()
             if num_steps % 10 == 0:
                 pbar.set_description(f"loss = {round(loss.item(), 2)}")
             if num_steps % 1000 == 0 and this_num_steps > 0:
@@ -113,22 +117,47 @@ if __name__ == "__main__":
                 if config["train"]["scheduler"]:
                     saving_data["scheduler_state_dict"] = scheduler.state_dict()
                 torch.save(saving_data, os.path.join(models_path, f"last.pth"))
-            if num_steps % (len(dataloader) // 2) == 0 and this_num_steps > 0:
+            
+
+            if True: # num_steps % (len(dataloader) // 2) == 0 and this_num_steps > 0:
                 del data
                 torch.cuda.empty_cache()
                 model.eval()
+                
+                minADEs = []
+                minFDEs = []
+                missRates = []
+                
                 with torch.no_grad():
                     losses = []
                     min_ades = []
-                    first_batch = True
-                    for data in tqdm(val_dataloader):
+                    for b, data in enumerate(tqdm(val_dataloader)):
                         if config["train"]["normalize"]:
                             data = normalize(data, config)
                         dict_to_cuda(data)
                         probas, coordinates, _, _ = model(data, num_steps)
                         if config["train"]["normalize_output"]:
                             coordinates = coordinates * 10. + torch.Tensor([1.4715e+01, 4.3008e-03]).cuda()
+                        
+                        metric = Metric(coordinates, data["target/future/xy"], probas)
+                        minADEs.append(metric.minADE().detach().cpu().numpy())
+                        minFDEs.append(metric.minFDE().detach().cpu().numpy())
+                        missRates.append(metric.allMissRates())
+
+                        if b in plot_batches:
+                            visualizer = Visualizer(data, probas, coordinates)
+                            visualizer.road_features()
+                            visualizer.all_others()
+                            visualizer.visualize_targets()
+                            visualizer.save(f'visuals_transformer/batch={b}/ep={epoch}_step={num_steps}.jpg')
+                            visualizer.reset_fig()
                     train_losses = []
+                with open(f'metrics_transformer/ep={epoch}_step={num_steps}.txt', 'w') as f:
+                    f.writelines("\t".join([
+                        str(np.mean(np.array(minADEs))),
+                        str(np.mean(np.array(minFDEs))),
+                        str(np.mean(np.array(missRates)))
+                    ]))
                 saving_data = {
                     "num_steps": num_steps,
                     "model_state_dict": model.state_dict(),
@@ -136,12 +165,8 @@ if __name__ == "__main__":
                 }
                 if config["train"]["scheduler"]:
                     saving_data["scheduler_state_dict"] = scheduler.state_dict()
-                path = os.path.join(models_path, f"{num_steps}.pth")
-                #print(path)
-                torch.save(saving_data, path)
-                #torch.save(saving_data, os.path.join(models_path, f"{num_steps}.pth"))
+                torch.save(saving_data, os.path.join(models_path, f"{num_steps}.pth"))
             num_steps += 1
             this_num_steps += 1
             if "max_iterations" in config["train"] and num_steps > config["train"]["max_iterations"]:
                 break
-

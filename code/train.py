@@ -39,7 +39,12 @@ def get_git_revision_short_hash():
 
 config = get_config(sys.argv[1])
 alias = sys.argv[1].split("/")[-1].split(".")[0]
-models_path = f"models/{alias}__{get_git_revision_short_hash()}"
+mask = config['train']['data_config']['dataset_config']['mask_history_fraction']
+if not os.path.exists(f"mask={mask}"):
+    os.mkdir(f"mask={mask}")
+if not os.path.exists(f"mask={mask}/models"):
+    os.mkdir(f"mask={mask}/models")
+models_path = f"mask={mask}/models/{alias}__{get_git_revision_short_hash()}"
 if not os.path.exists(models_path):
     os.mkdir(models_path)
 
@@ -66,17 +71,17 @@ print("N PARAMS=", params)
 
 train_losses = []
 
-if not os.path.exists("visuals_transformer"):
-    os.makedirs("visuals_transformer")
-if not os.path.exists("metrics_transformer"):
-    os.makedirs("metrics_transformer")
+if not os.path.exists(f"mask={mask}/visuals_transformer"):
+    os.makedirs(f"mask={mask}/visuals_transformer")
+if not os.path.exists(f"mask={mask}/metrics_transformer"):
+    os.makedirs(f"mask={mask}/metrics_transformer")
 
-# random human-picked batches
+# random human-picked batches     
 plot_batches = [0, 30, 50, 90, 100]
 for b in plot_batches:
-    if not os.path.exists(f"visuals_transformer/batch={b}"):
-        os.makedirs(f"visuals_transformer/batch={b}")
-    
+    if not os.path.exists(f"mask={mask}/visuals_transformer/batch={b}"):
+        os.makedirs(f"mask={mask}/visuals_transformer/batch={b}")    
+
 if __name__ == "__main__":
     for epoch in tqdm(range(config["train"]["n_epochs"])):
         pbar = tqdm(dataloader)
@@ -148,10 +153,10 @@ if __name__ == "__main__":
                             visualizer.road_features()
                             visualizer.all_others()
                             visualizer.visualize_targets()
-                            visualizer.save(f'visuals_transformer/batch={b}/ep={epoch}_step={num_steps}.jpg')
+                            visualizer.save(f"mask={mask}/visuals_transformer/batch={b}/ep={epoch}_step={num_steps}.jpg")
                             visualizer.reset_fig()
                     train_losses = []
-                with open(f'metrics_transformer/ep={epoch}_step={num_steps}.txt', 'w') as f:
+                with open(f'mask={mask}/metrics_transformer/ep={epoch}_step={num_steps}.txt', 'w') as f:
                     f.writelines("\t".join([
                         str(np.mean(np.array(minADEs))),
                         str(np.mean(np.array(minFDEs))),

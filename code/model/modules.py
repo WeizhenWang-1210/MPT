@@ -47,14 +47,14 @@ class NormalMLP(nn.Module): #also multilevel perceptron? but can specify dimensi
         self._mlp = nn.ModuleList(modules)
 
     def forward(self, x):
-        tmp = []
-        prev_x_shape = x.shape
-        assert torch.isfinite(x).all()
-        tmp.append(x)
+        # tmp = []
+        # prev_x_shape = x.shape
+        # assert torch.isfinite(x).all()
+        # tmp.append(x)
         for l in self._mlp:
             x = l(x)
-            tmp.append(x)
-            assert torch.isfinite(x).all() #why would you store intermediate results?
+            # tmp.append(x)
+            # assert torch.isfinite(x).all() #why would you store intermediate results?
         return x
         output = self._mlp(x)
         return output

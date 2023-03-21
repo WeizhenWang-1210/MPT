@@ -48,7 +48,7 @@ models_path = f"mask={mask}/models/{alias}__{get_git_revision_short_hash()}"
 if not os.path.exists(models_path):
     os.mkdir(models_path)
 
-last_checkpoint = None # get_last_file(models_path) # now using last ckpt for experiments now
+last_checkpoint = get_last_file(models_path) # now using last ckpt for experiments now
 dataloader = get_dataloader(config["train"]["data_config"])
 val_dataloader = get_dataloader(config["val"]["data_config"])
 model = MultiPathPP(config["model"])
@@ -84,6 +84,7 @@ for b in plot_batches:
 
 if __name__ == "__main__":
     for epoch in tqdm(range(config["train"]["n_epochs"])):
+        _epoch = epoch + 5
         pbar = tqdm(dataloader)
         for data in pbar:
             model.train()
@@ -106,10 +107,6 @@ if __name__ == "__main__":
             if "clip_grad_norm" in config["train"]:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), config["train"]["clip_grad_norm"])
             optimizer.step()
-            # if config["train"]["normalize_output"]:
-            #     _coordinates = coordinates.detach() * 10. + torch.Tensor([1.4715e+01, 4.3008e-03]).cuda()
-            # else:
-            #     _coordinates = coordinates.detach()
             if num_steps % 10 == 0:
                 pbar.set_description(f"loss = {round(loss.item(), 2)}")
             if num_steps % 1000 == 0 and this_num_steps > 0:
@@ -123,7 +120,7 @@ if __name__ == "__main__":
                 torch.save(saving_data, os.path.join(models_path, f"last.pth"))
             
 
-            if num_steps % (len(dataloader) // 2) == 0 and this_num_steps > 0:
+            if num_steps % (len(dataloader) // 2) == 0:
                 del data
                 torch.cuda.empty_cache()
                 model.eval()
@@ -153,10 +150,10 @@ if __name__ == "__main__":
                             visualizer.road_features()
                             visualizer.all_others()
                             visualizer.visualize_targets()
-                            visualizer.save(f"mask={mask}/visuals_transformer/batch={b}/ep={epoch}_step={num_steps}.jpg")
+                            visualizer.save(f"mask={mask}/visuals_transformer/batch={b}/ep={_epoch}_step={num_steps}.jpg")
                             visualizer.reset_fig()
                     train_losses = []
-                with open(f'mask={mask}/metrics_transformer/ep={epoch}_step={num_steps}.txt', 'w') as f:
+                with open(f'mask={mask}/metrics_transformer/ep={_epoch}_step={num_steps}.txt', 'w') as f:
                     f.writelines("\t".join([
                         str(np.mean(np.array(minADEs))),
                         str(np.mean(np.array(minFDEs))),

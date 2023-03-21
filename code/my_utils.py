@@ -14,7 +14,7 @@ class Metric():
         self.truth = truth
         
         # euclean dist diff at the time prediction starts
-        pos_diff = torch.sum((truth[:, -1, :] - truth[:, -2, :]) ** 2, dim=1)
+        pos_diff = torch.sqrt(torch.sum((truth[:, -1, :] - truth[:, -2, :]) ** 2, dim=1))
         self.init_v = pos_diff * 10
         self.alpha = (self.init_v - 1.4) / (11 - 1.4)
         self.missrate_scale = torch.ones_like(self.init_v)
@@ -61,8 +61,10 @@ class Metric():
     # miss rate
     def missRate(self, T=29):
         truth = self.truth[:, T, :]
-        denominator = torch.norm(truth, p=2, dim=1, keepdim=True)
-        u = truth / denominator
+        # denominator = torch.norm(truth, p=2, dim=1, keepdim=True)
+        # u = truth / denominator
+        u = torch.nn.functional.normalize(truth, p=2.0)
+        
         # iterate thru batch, later averaged over batch
         not_missed = 0
         for b in range(self.batch_size):

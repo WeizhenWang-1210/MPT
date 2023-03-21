@@ -37,13 +37,13 @@ def get_git_revision_short_hash():
     return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
 
 config = get_config(sys.argv[1])
-alias = 'run' # sys.argv[1].split("/")[-1].split(".")[0][:3]
+# alias = 'run' # sys.argv[1].split("/")[-1].split(".")[0][:3]
 mask = config['train']['data_config']['dataset_config']['mask_history_fraction']
 if not os.path.exists(f"mask={mask}"):
     os.mkdir(f"mask={mask}")
 if not os.path.exists(f"mask={mask}/models"):
     os.mkdir(f"mask={mask}/models")
-models_path = f"mask={mask}/models/{alias}__{get_git_revision_short_hash()}"
+models_path = f"mask={mask}/models/run__72a81b0"
 if not os.path.exists(models_path):
     os.mkdir(models_path)
 if not os.path.exists(f"mask={mask}/metrics_transformer_redo"):
